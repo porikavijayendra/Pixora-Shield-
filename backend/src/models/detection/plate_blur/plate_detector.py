@@ -114,6 +114,65 @@ class PlateDetector:
         self.previous_regions = []
         self.missed_frames = 0
 
+    def _refine_plate_region(self, frame, region):
+        x1, y1, x2, y2 = region
+        roi_width = x2 - x1
+        roi_height = y2 - y1
+        if roi_width < 70 or roi_height < 16:
+            return region
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        roi = gray[y1:y2, x1:x2]
+        if roi.size == 0:
+            return region
+
+        _, threshold = cv2.threshold(
+            roi,
+            0,
+            255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+        )
+        text_contours, _ = cv2.findContours(
+            threshold,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
+        components = []
+        for contour in text_contours:
+            cx, cy, cw, ch = cv2.boundingRect(contour)
+            if (
+                3 <= cw <= roi_width * 0.22
+                and 5 <= ch <= roi_height * 0.82
+            ):
+                components.append((cx, cy, cw, ch))
+
+        if len(components) < 2:
+            return region
+
+        text_x1 = min(component[0] for component in components)
+        text_y1 = min(component[1] for component in components)
+        text_x2 = max(
+            component[0] + component[2]
+            for component in components
+        )
+        text_y2 = max(
+            component[1] + component[3]
+            for component in components
+        )
+
+        padding_x = max(3, int(roi_width * 0.025))
+        padding_y = max(3, int(roi_height * 0.10))
+        refined_x1 = max(0, x1 + text_x1 - padding_x)
+        refined_y1 = max(0, y1 + text_y1 - padding_y)
+        refined_x2 = min(frame.shape[1], x1 + text_x2 + padding_x)
+        refined_y2 = min(frame.shape[0], y1 + text_y2 + padding_y)
+
+        refined_width = refined_x2 - refined_x1
+        refined_height = refined_y2 - refined_y1
+        if refined_width < 70 or refined_height < 16:
+            return region
+        return [refined_x1, refined_y1, refined_x2, refined_y2]
+
     def _valid_plate_region(self, frame, region):
         height, width = frame.shape[:2]
         x1, y1, x2, y2 = (
@@ -145,6 +204,7 @@ class PlateDetector:
             box = self._valid_plate_region(frame, region)
             if box is None:
                 continue
+            box = self._refine_plate_region(frame, box)
             x1, y1, x2, y2 = box
             area = (x2 - x1) * (y2 - y1)
             if area <= frame_area * 0.07:
@@ -179,7 +239,10 @@ class PlateDetector:
 
     def process_frame(self, frame, frame_id):
         if self.model is None:
-            regions = self.fallback_regions(frame)
+            regions = self._normalize_regions(
+                frame,
+                self.fallback_regions(frame),
+            )
         else:
             regions = self._yolo_regions(frame)
 
