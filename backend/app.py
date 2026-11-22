@@ -80,6 +80,8 @@ PII_PATTERNS = (
     re.compile(r"\b(?:\+?\d[\d\s().-]{7,}\d)\b"),
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+    re.compile(r"\b\d{12}\b"),
+    re.compile(r"\b(?:\d{4}[\s-]?){3}\d{4}\b"),
 )
 
 
@@ -143,7 +145,7 @@ def detect_faces(frame):
 
 
 def detect_pii_regions(frame, frame_id):
-    if os.getenv("PII_DETECTION_ENABLED", "false").lower() not in ("1", "true", "yes"):
+    if os.getenv("PII_DETECTION_ENABLED", "true").lower() not in ("1", "true", "yes"):
         return []
     if pytesseract is None or frame_id % 30 != 0:
         return []
@@ -218,6 +220,15 @@ def deduplicate_blur_regions(regions, overlap_threshold=0.48):
         ):
             kept.append(region)
     return kept
+
+
+def partition_face_regions(detections, main_face):
+    if main_face is None:
+        return detections
+    return [
+        box for box in detections
+        if overlap_ratio(main_face, box) < 0.40
+    ]
 
 
 def select_main_face(detections, tracker, frame_width):
@@ -433,6 +444,13 @@ def process_video():
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    locked_main_face = find_largest_opening_face(
+        capture,
+        width,
+        height,
+    )
+    if locked_main_face is not None:
+        main_face_tracker.update([locked_main_face])
     writer = cv2.VideoWriter(
         str(output_path),
         cv2.VideoWriter_fourcc(*"mp4v"),
@@ -465,11 +483,23 @@ def process_video():
                 min(width, x2 + pad_x),
                 min(height, y2 + pad_y),
             ])
-        face_regions = face_tracker.update(padded_face_regions)
+        main_face = select_main_face(
+            padded_face_regions,
+            main_face_tracker,
+            width,
+        )
+        main_faces = main_face_tracker.update([main_face] if main_face else [])
+        main_face = main_faces[0] if main_faces else None
+        secondary_face_regions = partition_face_regions(
+            padded_face_regions,
+            main_face,
+        )
+        face_regions = face_tracker.update(secondary_face_regions)
         _, plate_regions = plate_detector.process_frame(frame, frame_id)
         plate_regions = [
             plate for plate in plate_regions
-            if not any(overlap_ratio(face, plate) >= 0.20 for face in face_regions)
+            if (main_face is None or overlap_ratio(main_face, plate) < 0.20)
+            and not any(overlap_ratio(face, plate) >= 0.20 for face in face_regions)
         ]
         pii_regions = detect_pii_regions(frame, frame_id)
         regions = face_regions + plate_regions + pii_regions
@@ -497,7 +527,7 @@ def process_video():
             f"{detected_regions} privacy regions, "
             f"{plate_regions_detected} plate detections, "
             f"{pii_regions_detected} PII text detections. "
-            "All detected faces and license plates are blurred."
+            "The main person remains clear; secondary faces, plates, and sensitive text are blurred."
         ),
         "metrics": {
             "frames": processed_frames,

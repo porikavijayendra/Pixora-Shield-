@@ -11,6 +11,7 @@ from backend.app import (
     overlap_ratio,
     select_main_face,
     deduplicate_blur_regions,
+    partition_face_regions,
 )
 
 
@@ -26,6 +27,15 @@ class RegionTrackerTest(unittest.TestCase):
 
         self.assertIsNotNone(profile_detector)
         self.assertFalse(profile_detector.empty())
+
+    def test_partition_blurs_only_secondary_faces(self):
+        main_face = [100, 100, 220, 220]
+        second_face = [700, 120, 820, 240]
+        secondary = partition_face_regions(
+            [main_face, second_face],
+            main_face,
+        )
+        self.assertEqual(secondary, [second_face])
 
     def test_deduplicates_overlapping_extra_blur_regions(self):
         regions = deduplicate_blur_regions([
