@@ -14,13 +14,14 @@ from src.models.detection.plate_blur.plate_detector import PlateDetector
 
 
 BACKEND_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
 UPLOAD_DIR = BACKEND_DIR / "uploads"
 OUTPUT_DIR = BACKEND_DIR / "outputs"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
-CORS(app, origins=os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(","))
+CORS(app, origins=os.getenv("CORS_ALLOWED_ORIGINS", "*").split(","))
 
 def find_face_cascade():
     candidates = []
@@ -336,6 +337,21 @@ class RegionTracker:
 
 face_tracker = RegionTracker(max_missed=4, match_threshold=0.12, smooth=0.45)
 main_face_tracker = RegionTracker(max_missed=15, match_threshold=0.08, smooth=0.35)
+
+
+@app.get("/")
+def index():
+    return send_from_directory(FRONTEND_DIR, "index.html")
+
+
+@app.get("/<path:filename>")
+def frontend_assets(filename):
+    if filename.startswith("api/"):
+        return jsonify({"error": "Not found"}), 404
+    asset = FRONTEND_DIR / filename
+    if asset.is_file():
+        return send_from_directory(FRONTEND_DIR, filename)
+    return jsonify({"error": "Not found"}), 404
 
 
 @app.get("/api/health")

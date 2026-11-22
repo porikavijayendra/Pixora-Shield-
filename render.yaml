@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: pixora-shield
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: gunicorn --chdir backend --bind 0.0.0.0:$PORT app:app
+    healthCheckPath: /api/health
+    envVars:
+      - key: CORS_ALLOWED_ORIGINS
+        value: "*"
+      - key: PII_DETECTION_ENABLED
+        value: "false"

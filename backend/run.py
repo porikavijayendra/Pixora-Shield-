@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 
 
@@ -9,4 +10,8 @@ from app import app
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "5000")),
+        debug=False,
+    )
