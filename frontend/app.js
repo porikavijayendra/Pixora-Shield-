@@ -1,6 +1,4 @@
-const API_URL = window.location.hostname === "localhost"
-  ? "http://localhost:5000"
-  : window.location.origin;
+const API_URL = window.location.origin;
 
 const videoInput = document.querySelector("#videoInput");
 const dropzone = document.querySelector("#dropzone");
