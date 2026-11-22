@@ -83,11 +83,24 @@ processButton.addEventListener("click", async () => {
   form.append("video", selectedFile);
 
   try {
-    const response = await fetch(`${API_URL}/api/process`, {
-      method: "POST",
-      body: form,
-    });
-    const data = await response.json();
+    let response;
+    try {
+      response = await fetch(`${API_URL}/api/process`, {
+        method: "POST",
+        body: form,
+      });
+    } catch (networkError) {
+      throw new Error(
+        `Cannot reach the backend at ${window.location.origin}. Restart Pixora Shield on port 3000.`
+      );
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error(`Backend returned HTTP ${response.status} without JSON.`);
+    }
 
     if (!response.ok) {
       throw new Error(data.error || "Processing failed");
