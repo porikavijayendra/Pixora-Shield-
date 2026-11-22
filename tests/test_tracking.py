@@ -15,6 +15,12 @@ from backend.app import (
 
 
 class RegionTrackerTest(unittest.TestCase):
+    def test_face_detection_cascade_is_loaded(self):
+        from backend.app import face_detector
+
+        self.assertIsNotNone(face_detector)
+        self.assertFalse(face_detector.empty())
+
     def test_deduplicates_overlapping_extra_blur_regions(self):
         regions = deduplicate_blur_regions([
             [100, 100, 200, 200],

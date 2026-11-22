@@ -67,7 +67,7 @@ def is_visible_face(frame, box):
     x1, y1, x2, y2 = box
     box_width = max(0, x2 - x1)
     box_height = max(0, y2 - y1)
-    if box_width < 48 or box_height < 48:
+    if box_width < 32 or box_height < 32:
         return False
     frame_ratio = (box_width * box_height) / float(width * height)
     aspect_ratio = box_width / float(box_height)
@@ -79,13 +79,17 @@ def detect_faces(frame):
         return []
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     gray = cv2.equalizeHist(gray)
-    faces = face_detector.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=7,
-        minSize=(48, 48),
-        flags=cv2.CASCADE_SCALE_IMAGE,
-    )
+    faces = ()
+    for scale_factor, neighbors in ((1.05, 5), (1.10, 7)):
+        faces = face_detector.detectMultiScale(
+            gray,
+            scaleFactor=scale_factor,
+            minNeighbors=neighbors,
+            minSize=(32, 32),
+            flags=cv2.CASCADE_SCALE_IMAGE,
+        )
+        if len(faces):
+            break
     height, width = frame.shape[:2]
     visible_faces = []
     for (x, y, w, h) in faces:
@@ -390,13 +394,6 @@ def process_video():
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    locked_main_face = find_largest_opening_face(
-        capture,
-        width,
-        height,
-    )
-    if locked_main_face is not None:
-        main_face_tracker.update([locked_main_face])
     writer = cv2.VideoWriter(
         str(output_path),
         cv2.VideoWriter_fourcc(*"mp4v"),
@@ -429,25 +426,11 @@ def process_video():
                 min(width, x2 + pad_x),
                 min(height, y2 + pad_y),
             ])
-        main_face = select_main_face(
-            padded_face_regions,
-            main_face_tracker,
-            width,
-        )
-        main_faces = main_face_tracker.update([main_face] if main_face else [])
-        main_face = main_faces[0] if main_faces else None
-
-        if main_face is not None:
-            padded_face_regions = [
-                box for box in padded_face_regions
-                if overlap_ratio(main_face, box) < 0.40
-            ]
         face_regions = face_tracker.update(padded_face_regions)
         _, plate_regions = plate_detector.process_frame(frame, frame_id)
         plate_regions = [
             plate for plate in plate_regions
-            if (main_face is None or overlap_ratio(main_face, plate) < 0.20)
-            and not any(overlap_ratio(face, plate) >= 0.20 for face in face_regions)
+            if not any(overlap_ratio(face, plate) >= 0.20 for face in face_regions)
         ]
         pii_regions = detect_pii_regions(frame, frame_id)
         regions = face_regions + plate_regions + pii_regions
@@ -475,7 +458,7 @@ def process_video():
             f"{detected_regions} privacy regions, "
             f"{plate_regions_detected} plate detections, "
             f"{pii_regions_detected} PII text detections. "
-            "The main person remains clear; secondary people are blurred."
+            "All detected faces and license plates are blurred."
         ),
         "metrics": {
             "frames": processed_frames,
