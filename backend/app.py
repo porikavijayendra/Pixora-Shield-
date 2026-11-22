@@ -39,15 +39,36 @@ def find_face_cascade():
     return next((path for path in candidates if Path(path).is_file()), "")
 
 
+def find_profile_cascade():
+    candidates = []
+    if hasattr(cv2, "data"):
+        candidates.append(
+            str(Path(cv2.data.haarcascades) / "haarcascade_profileface.xml")
+        )
+    candidates.extend([
+        str(BACKEND_DIR / "models" / "haarcascade_profileface.xml"),
+        "/usr/share/opencv4/haarcascades/haarcascade_profileface.xml",
+        "/usr/share/opencv/haarcascades/haarcascade_profileface.xml",
+    ])
+    return next((path for path in candidates if Path(path).is_file()), "")
+
+
 face_cascade_path = find_face_cascade()
+profile_cascade_path = find_profile_cascade()
 try:
     face_detector = (
         cv2.CascadeClassifier(face_cascade_path)
         if face_cascade_path and hasattr(cv2, "CascadeClassifier")
         else None
     )
+    profile_detector = (
+        cv2.CascadeClassifier(profile_cascade_path)
+        if profile_cascade_path and hasattr(cv2, "CascadeClassifier")
+        else None
+    )
 except cv2.error:
     face_detector = None
+    profile_detector = None
 plate_detector = PlateDetector(conf_thresh=float(os.getenv("PLATE_CONF_THRESH", "0.25")))
 try:
     import pytesseract
@@ -71,7 +92,7 @@ def is_visible_face(frame, box):
         return False
     frame_ratio = (box_width * box_height) / float(width * height)
     aspect_ratio = box_width / float(box_height)
-    return frame_ratio >= 0.0015 and 0.72 <= aspect_ratio <= 1.28
+    return frame_ratio >= 0.0008 and 0.60 <= aspect_ratio <= 1.45
 
 
 def detect_faces(frame):
@@ -79,7 +100,7 @@ def detect_faces(frame):
         return []
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     gray = cv2.equalizeHist(gray)
-    faces = ()
+    detected_faces = []
     for scale_factor, neighbors in ((1.05, 5), (1.10, 7)):
         faces = face_detector.detectMultiScale(
             gray,
@@ -88,18 +109,36 @@ def detect_faces(frame):
             minSize=(32, 32),
             flags=cv2.CASCADE_SCALE_IMAGE,
         )
-        if len(faces):
+        detected_faces.extend([tuple(face) for face in faces])
+        if len(faces) >= 2:
             break
+
+    if profile_detector is not None and not profile_detector.empty():
+        for view in (gray, cv2.flip(gray, 1)):
+            faces = profile_detector.detectMultiScale(
+                view,
+                scaleFactor=1.05,
+                minNeighbors=4,
+                minSize=(32, 32),
+                flags=cv2.CASCADE_SCALE_IMAGE,
+            )
+            for x, y, w, h in faces:
+                if view is not gray:
+                    x = gray.shape[1] - x - w
+                detected_faces.append((int(x), int(y), int(w), int(h)))
+
     height, width = frame.shape[:2]
     visible_faces = []
-    for (x, y, w, h) in faces:
+    for (x, y, w, h) in detected_faces:
         frame_ratio = (w * h) / float(width * height)
         aspect_ratio = w / float(h)
-        if frame_ratio < 0.0015:
+        if frame_ratio < 0.0008:
             continue
-        if not 0.72 <= aspect_ratio <= 1.28:
+        if not 0.60 <= aspect_ratio <= 1.45:
             continue
-        visible_faces.append([int(x), int(y), int(x + w), int(y + h)])
+        candidate = [int(x), int(y), int(x + w), int(y + h)]
+        if not any(overlap_ratio(candidate, kept) >= 0.40 for kept in visible_faces):
+            visible_faces.append(candidate)
     return visible_faces
 
 
