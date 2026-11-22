@@ -13,9 +13,18 @@ from backend.app import (
     deduplicate_blur_regions,
     partition_face_regions,
 )
+from backend.src.models.detection.blur_utils import apply_blur_regions
 
 
 class RegionTrackerTest(unittest.TestCase):
+    def test_whole_frame_region_is_not_blurred(self):
+        frame = np.full((480, 640, 3), 220, dtype=np.uint8)
+        processed = apply_blur_regions(
+            frame,
+            [[0, 0, 640, 480]],
+        )
+        np.testing.assert_array_equal(processed, frame)
+
     def test_face_detection_cascade_is_loaded(self):
         from backend.app import face_detector
 
